@@ -11,6 +11,7 @@ rust-version = "1.95"
 repository = "https://github.com/DisneyMjr/EFFECT-SMART"
 
 [workspace.dependencies]
+image = "0.25"
 craft-pdf = { git = "https://github.com/storytold/craft-libs", rev = "ca50d63b773c99f96e75c77ce5a1d21e7c9cda0d", version = "=0.1.0", default-features = false, features = ["read"] }
 # internal
 effectcraft-time = { path = "crates/time" }
