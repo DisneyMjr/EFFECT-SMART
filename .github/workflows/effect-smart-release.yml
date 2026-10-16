@@ -1,0 +1,88 @@
+name: Publicar Effect Smart
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versao exata do Cargo.toml (exemplo 0.10.0)"
+        required: true
+        type: string
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          actual=$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\([^"]*\)"/\1/p;}' Cargo.toml | head -1)
+          echo "Cargo.toml: $actual / solicitado: $REQUESTED_VERSION"
+          test -n "$actual"
+          test "$actual" = "$REQUESTED_VERSION"
+          echo "version=$actual" >> "$GITHUB_OUTPUT"
+  windows:
+    needs: validate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - shell: pwsh
+        run: dotnet tool install --global wix --version 5.0.2
+      - shell: pwsh
+        run: ./packaging/windows/package.ps1 -Arch x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: dist/release/*windows-x64*
+          if-no-files-found: error
+  linux:
+    needs: validate
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxi-dev libxrandr-dev libvulkan-dev libgl1-mesa-dev zsync desktop-file-utils
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - run: bash packaging/linux/package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: dist/release/*linux-x86_64*
+          if-no-files-found: error
+  publish:
+    needs: [validate, windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: release
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.validate.outputs.version }}
+          name: Effect Smart v${{ needs.validate.outputs.version }}
+          files: release/*
+          generate_release_notes: true
